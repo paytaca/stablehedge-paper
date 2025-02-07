@@ -1,0 +1,46 @@
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Dependency directories
+node_modules/
+venv/
+__pycache__/
+target/
+bin/
+out/
+
+dist/
+
+yarn.lock
+package-lock.json
+
+# IDE/editor settings
+.vscode/
+.idea/
+*.iml
+
+# Logs and databases
+*.log
+db.sqlite3
+db/*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Compiled files
+*.class
+*.o
+*.so
+*.dll
+*.exe
+*.pyc
+*.pyo
+
+# Miscellaneous
+*.swp
+*.swo
+*.bak
+*.tmp
