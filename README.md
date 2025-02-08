@@ -8,7 +8,7 @@ www.paytaca.com
 
 Whitepaper version: v0.1.0
 
-Last update: February 6, 2025
+Last update: February 8, 2025
 
 
 ## Abstract
@@ -21,7 +21,7 @@ Existing solutions like AnyHedge and BCH Bull allow users to lock in the value o
 
 StableHedge addresses these limitations by combining tokenization, decentralized hedging, and dynamic treasury management to create a stable, liquid asset for BCH holders.
 
-## Problem Statement
+## 2. Problem Statement
 #### Volatility Exposure
 Cryptocurrencies, such as Bitcoin Cash, exhibit significantly higher price volatility compared to traditional assets like fiat currencies. These fluctuations can result in lower value of the asset which discourages widespread adoption among merchants and users as a form of payment or store of value.
 #### Lock-In Periods
