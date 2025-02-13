@@ -8,7 +8,7 @@ www.paytaca.com
 
 Whitepaper version: v0.1.0
 
-Last update: February 8, 2025
+Last update: February 13, 2025
 
 
 ## Abstract
@@ -100,7 +100,29 @@ Where:
 - *satsPerBch* - A constant 10,000,000
 - *priceValue* - Price value in units per BCH (e.g. USD cents per BCH)
 
-### 4.3 Deposit Transaction
+### 4.3 Smart Contracts
+
+The smart contracts are designed to implement a semi-managed non-custodial framework, ensuring that while the platform retains some level of control over treasury operations, users maintain custody of their assets. This design grants the treasury contract flexibility in the timing of placing short positions while imposing constraints on fund utilization. Specifically, we aim to restrict them to two types of recipients; the leveraged short positions and the redemption contract.
+
+#### RedemptionContract
+
+The RedemptionContract is a CashScript smart contract designed for handling and managing liquidity for the platform. The contract uses signed price oracle messages to enforce the correct values in deposit and redemption. The contract also uses the AuthGuard standard [4] for managing liquidity funds. The parameters of the contract are as follows:
+- *authKeyId (bytes32)*: The 32-byte token category representing the NFT that grants authentication to manage the contract's funds.
+- *tokenCategory (bytes32)*: A 32-byte token category of a stablehedge token.
+- *oraclePublicKey (pubkey)*: A 33-byte public key used to verify price messages from an oracle.
+
+The source code of the contract is provided in the Appendix section.
+
+#### TreasuryContract
+
+The TreasuryContract is a CashScript smart contract designed to manage treasury funds and provide the funds for leveraged shorts using 3-of-5 multisignature and the AuthGuard standard [4]. The contract’s parameters are as follows:
+
+- *authKeyId (bytes32)*: A 32-byte token category representing the NFT required for unlocking treasury funds.
+- *pk1, pk2, pk3, pk4, pk5 (pubkey)*: Five 33-byte public keys associated with the treasury's multi-signature scheme.
+
+The source code of the contract is provided in the Appendix section.
+
+### 4.4 Deposit Transaction
 
 <figure>
   <img src="./images/deposit-transaction.png" />
@@ -137,7 +159,7 @@ An additional 2000 satoshis dust amount and transaction fee
 	     = 0.20002 BCH
 ```
 
-### 4.4 Redemption Transaction
+### 4.5 Redemption Transaction
 
 <figure>
   <img src="./images/redeem-transaction.png" />
@@ -239,3 +261,106 @@ StableHedge provides a stability solution for BCH-based DeFi by merging tokeniza
 [2] General Protocols, “Understanding The BCHBull Contract” BCHBull.com [Online]. Available: https://bchbull.com/thecontract [Accessed: Feb 5, 2025]
 
 [3] J. Dreyzehner, "Token Primitives for Bitcoin Cash," Bitjson's Blog, Feb. 22, 2022. [Online]. Available: https://cashtokens.org/docs/spec/chip/ [Accessed: Feb. 5, 2025].
+
+[4] M. Geukens, bitcoincashautist, “AuthGuard Standard”, November 14, 2023. [Online]. Available: https://github.com/mr-zwets/AuthGuard/ [Accessed: February 13, 2025].
+
+## Appendix
+
+### RedemptionContract
+
+```
+pragma cashscript ^0.8.0;
+
+contract RedemptionContract(
+    bytes32 authKeyId,  // 32 B authkey nft id
+    bytes32 tokenCategory,  // 32 B token category of nft used for minting
+    pubkey  oraclePublicKey,  // 33 B, verifies message from oracle
+) {
+    function deposit(bytes priceMessage, datasig priceMessageSig, bool isInjectLiquidity) {
+        require(checkDataSig(priceMessageSig, priceMessage, oraclePublicKey));
+        int price = int(priceMessage.split(12)[1]);
+
+        require(tx.inputs[0].tokenCategory == tokenCategory);
+
+        // 1000 for tx fee and another 1000 for DUST in deposit output
+        int depositSats = tx.inputs[1].value - 1000 - 1000;
+
+        int satsPerBch = 100000000;
+        int tokenUnitSatsPerBch = depositSats * price;
+        int tokenAmount = int(tokenUnitSatsPerBch / satsPerBch);
+
+        if (!isInjectLiquidity) {
+            depositSats = depositSats / 2;
+            require(tx.outputs[2].value == depositSats);
+        }
+
+        require(tx.outputs[1].tokenCategory == tokenCategory);
+        require(tx.outputs[1].tokenAmount == tokenAmount);
+
+        require(tx.outputs[0].tokenCategory == tokenCategory);
+        require(tx.outputs[0].tokenAmount == tx.inputs[0].tokenAmount - tokenAmount);
+        require(tx.outputs[0].value == tx.inputs[0].value + depositSats);
+    }
+
+    function redeem(bytes priceMessage, datasig priceMessageSig) {
+        require(checkDataSig(priceMessageSig, priceMessage, oraclePublicKey));
+        int price = int(priceMessage.split(12)[1]);
+
+        require(tx.inputs[0].tokenCategory == tokenCategory);
+        require(tx.inputs[1].tokenCategory == tokenCategory);
+
+        int satsPerBch = 100000000;
+        int tokenUnitSatsPerBch = tx.inputs[1].tokenAmount * satsPerBch;
+        int redeemSats = int(tokenUnitSatsPerBch / price);
+
+        require(tx.outputs[0].tokenCategory == tokenCategory);
+        require(tx.outputs[0].tokenAmount == tx.inputs[0].tokenAmount + tx.inputs[1].tokenAmount);
+        require(tx.outputs[0].value == tx.inputs[0].value - redeemSats);
+        require(tx.outputs[1].value == redeemSats);
+        // DUST sats in redeem input is used as tx fee
+    }
+
+    function unlockWithNft(bool keepGuarded) {
+        // Check that the second input holds the AuthKey NFT
+        require(tx.inputs[1].tokenCategory == authKeyId);
+        require(tx.inputs[1].tokenAmount == 0);
+
+        // if keepGuarded is false, the AuthHead can be released from the AuthGuard covenant
+        if(keepGuarded) {
+            // Self preservation of AuthGuard covenant as the first output
+            require(tx.outputs[0].lockingBytecode == tx.inputs[this.activeInputIndex].lockingBytecode);
+        }
+    }
+}
+```
+
+
+### TreasuryContract
+```
+pragma cashscript ^0.8.0;
+
+contract TreasuryContract(
+    bytes32 authKeyId, // 32 B token category of authkey nft
+    pubkey pk1,
+    pubkey pk2,
+    pubkey pk3,
+    pubkey pk4,
+    pubkey pk5,
+) {
+    function unlockWithNft(bool keepGuarded) {
+        // Check that the first input holds the AuthKey NFT
+        require(tx.inputs[1].tokenCategory == authKeyId);
+        require(tx.inputs[1].tokenAmount == 0);
+
+        // if keepGuarded is false, the AuthHead can be released from the AuthGuard covenant
+        if(keepGuarded){
+            // Self preservation of AuthGuard covenant as the first output
+            require(tx.outputs[0].lockingBytecode == tx.inputs[this.activeInputIndex].lockingBytecode);
+        }
+    }
+
+    function unlockWithMultiSig(sig sig1, sig sig2, sig sig3) {
+        require(checkMultiSig([sig1, sig2, sig3], [pk1, pk2, pk3, pk4, pk5]));
+    }
+}
+```
