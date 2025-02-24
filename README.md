@@ -82,6 +82,8 @@ Since only a portion of deposited funds are allocated as liquidity for redemptio
 
 - **Price Value**: All price values are expressed in assets per BCH. For instance, USD prices are in USD/BCH meaning the price represents the amount of USD for 1 BCH. Price values also have decimal precisions, for instance USD/BCH are represented as USD cents per BCH where 1 USD = 100 USD cents. For 1 USD/BCH, the price value used in calculations is 100 USD cents / BCH.
 
+- **Total Value Locked**: The total value locked (TVL) is the total amount of funds stored in the platform. This includes the BCH held in RedemptionContract and TreasuryContract and the total value, in BCH, of the ongoing short positions.
+
 ### 4.2 Conversions
 
 The Bitcoin Cash script operates without floating-point arithmetic, making division operations result in floor division. To maintain consistency with this behavior, we derived the following two formulas for converting between satoshis and token units.
@@ -188,6 +190,21 @@ satoshis = ⌊(tokenUnits * satsPerBch) / priceValue​⌋
 	     = 10,000,000 satoshis
 	     = 0.1 BCH
 ```
+
+
+### 4.6 Leveraged short
+
+Treasury funds are placed in a 2x leveraged short contract with BCH Bull. We limit the amount to short based on the TVL to ensure that there is enough funds for rebalancing.
+
+For funding the short contract, we use an intermediate P2PKH(Pay-to-public-key hash) wallet where the TrasuryContract send the funds to a P2PKH wallet through multisig. Then the P2PKH wallet will then provide these funds to the liquidity provider.
+
+We employ this proxy funder due to constraints with the liquidity provider where it requires a P2PKH UTXO to validate the funding. However, the final design we aim is to have a direct and secure funding between the TreasuryContract and leveraged short contracts by constraining the TreasuryContract to spend funds to anyhedge contracts.
+
+### 4.7 Rebalancing
+
+The platform maintains liquidity redemption by ensuring there is equal value locked between RedemptionContract & TreasuryContract. We add a process where a portion of the funds from the TreasuryContract are allocated to the RedemptionContract’s ReserveUTXO using authkey token for each contract.
+
+The TreasuryContract sends BCH to the RedemptionContract then the RedemptionContract re-arranges its funds by combining the received BCH to the ReserveUTXO. In cases where the RedemptionContract and TreasuryContract shares the same authkey token, these two steps can be done in a single transaction to reduce transaction fees.
 
 ## 5. Key Innovations
 
