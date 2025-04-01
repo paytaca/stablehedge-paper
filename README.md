@@ -6,11 +6,6 @@ stablehedge@paytaca.com
 
 www.paytaca.com
 
-Whitepaper version: v0.1.0
-
-Last update: February 13, 2025
-
-
 ## Abstract
 StableHedge is a novel DeFi protocol built on the Bitcoin Cash (BCH) blockchain, designed to mitigate price volatility risks while enabling instant liquidity. By tokenizing AnyHedge [1] contracts and integrating strategic hedging via BCH Bull, StableHedge offers a stable, redeemable token pegged to USD value, eliminating lock-in periods and reducing counterparty fees. This whitepaper outlines the architecture, mechanics, and benefits of StableHedge, positioning it as a transformative solution for BCH users and merchants.
 
