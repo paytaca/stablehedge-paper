@@ -113,7 +113,7 @@ The RedemptionContract is a CashScript smart contract designed for handling and 
 - *tokenCategory (bytes32)*: A 32-byte token category of a stablehedge token.
 - *oraclePublicKey (pubkey)*: A 33-byte public key used to verify price messages from an oracle.
 
-The source code of the contract is provided in the Appendix section.
+The source code of the contract is provided [here](./contracts/redemption-contract.cash).
 
 #### TreasuryContract
 
@@ -121,8 +121,9 @@ The TreasuryContract is a CashScript smart contract designed to manage treasury 
 
 - *authKeyId (bytes32)*: A 32-byte token category representing the NFT required for unlocking treasury funds.
 - *pk1, pk2, pk3, pk4, pk5 (pubkey)*: Five 33-byte public keys associated with the treasury's multi-signature scheme.
+- *anyhedgeBaseBytecode (bytes)*: Base bytecode of the anyhedge smart contract. Used for generating the recipient address when funding short positions. This provides more confidence that the contract being funded by the TreasuryContract is an anyhedge position, assuming that the base bytecode is from an anyhedge smart contract.
 
-The source code of the contract is provided in the Appendix section.
+The source code of the contract is provided [here](./contracts/treasury-contract.cash).
 
 ### 4.4 Deposit Transaction
 
@@ -196,9 +197,19 @@ satoshis = ⌊(tokenUnits * satsPerBch) / priceValue​⌋
 
 Treasury funds are placed in a 2x leveraged short contract with BCH Bull. We limit the amount to short based on the TVL to ensure that there is enough funds for rebalancing.
 
-For funding the short contract, we use an intermediate P2PKH(Pay-to-public-key hash) wallet where the TrasuryContract send the funds to a P2PKH wallet through multisig. Then the P2PKH wallet will then provide these funds to the liquidity provider.
+For funding the short contract, TreasuryContract contains a covenant, `spendToAnyhedge`, to ensure that the funds are sent to an Anyhedge contract. This is achieved by generating recipient address using the anyhedge artifact bytecode from `anyhedgeBaseBytecode` parameter and short position parameters. Additionally, constraints are enforced on the short position parameters and the funding transaction inputs to prevent disadvantage on TreasuryContract when placing the short position. 
 
-We employ this proxy funder due to constraints with the liquidity provider where it requires a P2PKH UTXO to validate the funding. However, the final design we aim is to have a direct and secure funding between the TreasuryContract and leveraged short contracts by constraining the TreasuryContract to spend funds to anyhedge contracts.
+We added a covenant, `consolidate`, to generate the UTXO that has the exact amount needed for the short position's funding transaction. Furthermore, by limiting the funding to a single UTXO, the complexity is reduced in the covenant `spendToAnyhedge`. An example of a consolidate function is shown below.
+
+<figure>
+  <img src="./images/consolidate-transaction.png" />
+  <figcaption>Figure 4: Consolidate transaction</figcaption>
+</figure>
+
+- Every 4 bytes in `OP_DATA` contains the cumulative satoshis of the UTXOs provided in the inputs, resulting in the last 4 bytes as the total input satoshis.
+- Each in input check's if the adjacent and active indices are from the TreasuryContract. This condition ensures that the condition for `OP_DATA` above is true.
+- The outputs have a fixed 1-2 count that returns to the TreasuryContract. An optional 2nd output is allowed as change output to allow creating a UTXO with a specific amount of satoshis that will be required when funding short positions.
+- Having a fixed number of outputs allows us to determine the total output satoshis. This can be compared with the last 4 bytes of `OP_DATA`, which is the total input satoshis. By comparing these values, we prevent burning a significant amount of satoshis from improperly balancing input and output amounts.
 
 ### 4.7 Rebalancing
 
@@ -219,7 +230,7 @@ The 2x leveraged shorts ensures that the total BCH deposited maintains its value
 
 <figure>
   <img src="./images/value-stability-diagram.png" />
-  <figcaption>Figure 4</figcaption>
+  <figcaption>Figure 5</figcaption>
 </figure>
 
 
@@ -280,104 +291,3 @@ StableHedge provides a stability solution for BCH-based DeFi by merging tokeniza
 [3] J. Dreyzehner, "Token Primitives for Bitcoin Cash," Bitjson's Blog, Feb. 22, 2022. [Online]. Available: https://cashtokens.org/docs/spec/chip/ [Accessed: Feb. 5, 2025].
 
 [4] M. Geukens, bitcoincashautist, “AuthGuard Standard”, November 14, 2023. [Online]. Available: https://github.com/mr-zwets/AuthGuard/ [Accessed: February 13, 2025].
-
-## Appendix
-
-### RedemptionContract
-
-```
-pragma cashscript ^0.8.0;
-
-contract RedemptionContract(
-    bytes32 authKeyId,  // 32 B authkey nft id
-    bytes32 tokenCategory,  // 32 B token category of nft used for minting
-    pubkey  oraclePublicKey,  // 33 B, verifies message from oracle
-) {
-    function deposit(bytes priceMessage, datasig priceMessageSig, bool isInjectLiquidity) {
-        require(checkDataSig(priceMessageSig, priceMessage, oraclePublicKey));
-        int price = int(priceMessage.split(12)[1]);
-
-        require(tx.inputs[0].tokenCategory == tokenCategory);
-
-        // 1000 for tx fee and another 1000 for DUST in deposit output
-        int depositSats = tx.inputs[1].value - 1000 - 1000;
-
-        int satsPerBch = 100000000;
-        int tokenUnitSatsPerBch = depositSats * price;
-        int tokenAmount = int(tokenUnitSatsPerBch / satsPerBch);
-
-        if (!isInjectLiquidity) {
-            depositSats = depositSats / 2;
-            require(tx.outputs[2].value == depositSats);
-        }
-
-        require(tx.outputs[1].tokenCategory == tokenCategory);
-        require(tx.outputs[1].tokenAmount == tokenAmount);
-
-        require(tx.outputs[0].tokenCategory == tokenCategory);
-        require(tx.outputs[0].tokenAmount == tx.inputs[0].tokenAmount - tokenAmount);
-        require(tx.outputs[0].value == tx.inputs[0].value + depositSats);
-    }
-
-    function redeem(bytes priceMessage, datasig priceMessageSig) {
-        require(checkDataSig(priceMessageSig, priceMessage, oraclePublicKey));
-        int price = int(priceMessage.split(12)[1]);
-
-        require(tx.inputs[0].tokenCategory == tokenCategory);
-        require(tx.inputs[1].tokenCategory == tokenCategory);
-
-        int satsPerBch = 100000000;
-        int tokenUnitSatsPerBch = tx.inputs[1].tokenAmount * satsPerBch;
-        int redeemSats = int(tokenUnitSatsPerBch / price);
-
-        require(tx.outputs[0].tokenCategory == tokenCategory);
-        require(tx.outputs[0].tokenAmount == tx.inputs[0].tokenAmount + tx.inputs[1].tokenAmount);
-        require(tx.outputs[0].value == tx.inputs[0].value - redeemSats);
-        require(tx.outputs[1].value == redeemSats);
-        // DUST sats in redeem input is used as tx fee
-    }
-
-    function unlockWithNft(bool keepGuarded) {
-        // Check that the second input holds the AuthKey NFT
-        require(tx.inputs[1].tokenCategory == authKeyId);
-        require(tx.inputs[1].tokenAmount == 0);
-
-        // if keepGuarded is false, the AuthHead can be released from the AuthGuard covenant
-        if(keepGuarded) {
-            // Self preservation of AuthGuard covenant as the first output
-            require(tx.outputs[0].lockingBytecode == tx.inputs[this.activeInputIndex].lockingBytecode);
-        }
-    }
-}
-```
-
-
-### TreasuryContract
-```
-pragma cashscript ^0.8.0;
-
-contract TreasuryContract(
-    bytes32 authKeyId, // 32 B token category of authkey nft
-    pubkey pk1,
-    pubkey pk2,
-    pubkey pk3,
-    pubkey pk4,
-    pubkey pk5,
-) {
-    function unlockWithNft(bool keepGuarded) {
-        // Check that the first input holds the AuthKey NFT
-        require(tx.inputs[1].tokenCategory == authKeyId);
-        require(tx.inputs[1].tokenAmount == 0);
-
-        // if keepGuarded is false, the AuthHead can be released from the AuthGuard covenant
-        if(keepGuarded){
-            // Self preservation of AuthGuard covenant as the first output
-            require(tx.outputs[0].lockingBytecode == tx.inputs[this.activeInputIndex].lockingBytecode);
-        }
-    }
-
-    function unlockWithMultiSig(sig sig1, sig sig2, sig sig3) {
-        require(checkMultiSig([sig1, sig2, sig3], [pk1, pk2, pk3, pk4, pk5]));
-    }
-}
-```
