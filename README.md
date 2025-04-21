@@ -121,7 +121,7 @@ The TreasuryContract is a CashScript smart contract designed to manage treasury 
 
 - *authKeyId (bytes32)*: A 32-byte token category representing the NFT required for unlocking treasury funds.
 - *pk1, pk2, pk3, pk4, pk5 (pubkey)*: Five 33-byte public keys associated with the treasury's multi-signature scheme.
-- *anyhedgeBaseBytecode (bytes)*: Base bytecode of the anyhedge smart contract. Used for generating the recipient address when funding short positions. This provides more confidence that the contract being funded by the TreasuryContract is an anyhedge position, assuming that the base bytecode is from an anyhedge smart contract.
+- *anyhedgeBaseBytecode (bytes)*: Base bytecode of the anyhedge smart contract. Used for generating the recipient address when funding short positions.
 
 The source code of the contract is provided [here](./contracts/treasury-contract.cash).
 
@@ -207,8 +207,8 @@ We added a covenant, `consolidate`, to generate the UTXO that has the exact amou
 </figure>
 
 - Every 4 bytes in `OP_DATA` contains the cumulative satoshis of the UTXOs provided in the inputs, resulting in the last 4 bytes as the total input satoshis.
-- Each in input check's if the adjacent and active indices are from the TreasuryContract. This condition ensures that the condition for `OP_DATA` above is true.
-- The outputs have a fixed 1-2 count that returns to the TreasuryContract. An optional 2nd output is allowed as change output to allow creating a UTXO with a specific amount of satoshis that will be required when funding short positions.
+- Each input check's if the adjacent and active indices are from the TreasuryContract. This condition ensures that all inputs are from the TreasuryContract and that the data in `OP_DATA` above is true.
+- There is a fixed number of 1-2 outputs that returns to the TreasuryContract. An optional 2nd output is provided as change output to allow creating a UTXO with a specific amount of satoshis. This is required for funding short positions.
 - Having a fixed number of outputs allows us to determine the total output satoshis. This can be compared with the last 4 bytes of `OP_DATA`, which is the total input satoshis. By comparing these values, we prevent burning a significant amount of satoshis from improperly balancing input and output amounts.
 
 ### 4.7 Rebalancing
