@@ -197,13 +197,19 @@ satoshis = ⌊(tokenUnits * satsPerBch) / priceValue​⌋
 
 Treasury funds are placed in a 2x leveraged short contract with BCH Bull. We limit the amount to short based on the TVL to ensure that there is enough funds for rebalancing.
 
-For funding the short contract, TreasuryContract contains a covenant, `spendToAnyhedge`, to ensure that the funds are sent to an Anyhedge contract. This is achieved by generating recipient address using the anyhedge artifact bytecode from `anyhedgeBaseBytecode` parameter and short position parameters. Additionally, constraints are enforced on the short position parameters and the funding transaction inputs to prevent disadvantage on TreasuryContract when placing the short position. 
+For funding the short contract, TreasuryContract contains a covenant, `spendToAnyhedge`, to ensure that the funds are sent to an Anyhedge contract. This is achieved by generating recipient address using the anyhedge artifact bytecode from `anyhedgeBaseBytecode` parameter and short position parameters. Additionally, constraints are enforced on the short position parameters and the funding transaction inputs to prevent disadvantage on TreasuryContract when placing the short position. More details regarding the covenant is shown in the smart contract [here](./contracts/treasury-contract.cash). An example of a funding transaction is shown below
+
+<figure>
+  <img src="./images/short-funding-transaction.png" />
+  <figcaption>Figure 4: Short position funding transaction</figcaption>
+</figure>
+
 
 We added a covenant, `consolidate`, to generate the UTXO that has the exact amount needed for the short position's funding transaction. Furthermore, by limiting the funding to a single UTXO, the complexity is reduced in the covenant `spendToAnyhedge`. An example of a consolidate function is shown below.
 
 <figure>
   <img src="./images/consolidate-transaction.png" />
-  <figcaption>Figure 4: Consolidate transaction</figcaption>
+  <figcaption>Figure 5: Consolidate transaction</figcaption>
 </figure>
 
 - Every 4 bytes in `OP_DATA` contains the cumulative satoshis of the UTXOs provided in the inputs, resulting in the last 4 bytes as the total input satoshis.
@@ -230,7 +236,7 @@ The 2x leveraged shorts ensures that the total BCH deposited maintains its value
 
 <figure>
   <img src="./images/value-stability-diagram.png" />
-  <figcaption>Figure 5</figcaption>
+  <figcaption>Figure 6</figcaption>
 </figure>
 
 
