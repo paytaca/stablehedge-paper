@@ -112,18 +112,22 @@ The RedemptionContract is a CashScript smart contract designed for handling and 
 - *authKeyId (bytes32)*: The 32-byte token category representing the NFT that grants authentication to manage the contract's funds.
 - *tokenCategory (bytes32)*: A 32-byte token category of a stablehedge token.
 - *oraclePublicKey (pubkey)*: A 33-byte public key used to verify price messages from an oracle.
+- *treasuryContractLockingBytecode (bytes35)* - A 33-byte lockscript of the treasury contract.
 
 The source code of the contract is provided [here](./contracts/redemption-contract.cash).
 
 #### TreasuryContract
 
-The TreasuryContract is a CashScript smart contract designed to manage treasury funds and provide the funds for leveraged shorts using 3-of-5 multisignature and the AuthGuard standard [4]. The contract’s parameters are as follows:
+The TreasuryContract is a CashScript smart contract designed to manage treasury funds and provide the funds for leveraged shorts. It operates primarily through covenant-enforced conditions, enabling execution without reliance on specific private keys or digital signatures. Nonetheless, a 3-of-5 multisignature mechanism, in combination with the AuthGuard standard [4], is integrated as a failsafe. The contract’s parameters are as follows:
 
 - *authKeyId (bytes32)*: A 32-byte token category representing the NFT required for unlocking treasury funds.
 - *pk1, pk2, pk3, pk4, pk5 (pubkey)*: Five 33-byte public keys associated with the treasury's multi-signature scheme.
-- *anyhedgeBaseBytecode (bytes)*: Base bytecode of the anyhedge smart contract. Used for generating the recipient address when funding short positions.
+- *anyhedgeContractFingerprint (bytes32)*: A hash256 of the base bytecode [5] of the anyhedge smart contract. Used for generating the recipient address when funding short positions.
+- *redemptionTokenCategory (bytes32)*: A 32-byte token category of a stablehedge token.
+- *oraclePublicKey (pubkey)*: A 33-byte public key used to verify price messages from an oracle.
+- *redemptionContractFingerprint (bytes32)*: A hash256 of the base bytecode [5] of the RedemptionContract. Used for generating redemption contract address within a covenant.
 
-The source code of the contract is provided [here](./contracts/treasury-contract.cash).
+The source code of the contract is provided [here](./contracts/treasury-contract.cash). It is essential that the paramters, *redemptionTokenCategory, oraclePublicKey, and redemptionContractFingerprint* match the values in the RedemptionContract.
 
 ### 4.4 Deposit Transaction
 
@@ -204,6 +208,7 @@ For funding the short contract, TreasuryContract contains a covenant, `spendToAn
   <figcaption>Figure 4: Short position funding transaction</figcaption>
 </figure>
 
+### 4.7 Consolidation
 
 We added a covenant, `consolidate`, to generate the UTXO that has the exact amount needed for the short position's funding transaction. Furthermore, by limiting the funding to a single UTXO, the complexity is reduced in the covenant `spendToAnyhedge`. An example of a consolidate function is shown below.
 
@@ -211,17 +216,30 @@ We added a covenant, `consolidate`, to generate the UTXO that has the exact amou
   <img src="./images/consolidate-transaction.png" />
   <figcaption>Figure 5: Consolidate transaction</figcaption>
 </figure>
-
-- Every 4 bytes in `OP_DATA` contains the cumulative satoshis of the UTXOs provided in the inputs, resulting in the last 4 bytes as the total input satoshis.
+- The first input and output is reserved for the fee funder. This can be any type of input and output(e.g. p2pkh, p2sh). This provides for the network fees for the transaction.
+- Every 4 bytes in `OP_DATA` contains the cumulative satoshis of the treasury contract's UTXOs provided in the inputs starting from index 1, resulting in the last 4 bytes as the total satoshis excluding input 0.
 - Each input check's if the adjacent and active indices are from the TreasuryContract. This condition ensures that all inputs are from the TreasuryContract and that the data in `OP_DATA` above is true.
-- There is a fixed number of 1-2 outputs that returns to the TreasuryContract. An optional 2nd output is provided as change output to allow creating a UTXO with a specific amount of satoshis. This is required for funding short positions.
-- Having a fixed number of outputs allows us to determine the total output satoshis. This can be compared with the last 4 bytes of `OP_DATA`, which is the total input satoshis. By comparing these values, we prevent burning a significant amount of satoshis from improperly balancing input and output amounts.
+- There is a fixed number of 3-4 outputs where the last two outputs, output 2-3, must return to the TreasuryContract. Furthermore, the output 2 recipient can also be the RedemptionContract for another use case explained in the next section.
+- Having a fixed number of outputs allows us to determine the total output satoshis and compare it with the total input satoshis from the last 4 bytes of the OP_DATA output. By comparing these values, we prevent burning a significant amount of satoshis from improperly balancing input and output amounts.
 
-### 4.7 Rebalancing
+### 4.8 Rebalancing
 
-The platform maintains liquidity redemption by ensuring there is equal value locked between RedemptionContract & TreasuryContract. We add a process where a portion of the funds from the TreasuryContract are allocated to the RedemptionContract’s ReserveUTXO using authkey token for each contract.
+The platform maintains liquidity redemption by ensuring there is equal value locked between RedemptionContract & TreasuryContract. We add a process where a portion of the funds from the TreasuryContract are allocated to the RedemptionContract’s ReserveUTXO. We implemented a non custodial design with the consolidate convenant mentioned above for each contract.
 
-The TreasuryContract sends BCH to the RedemptionContract then the RedemptionContract re-arranges its funds by combining the received BCH to the ReserveUTXO. In cases where the RedemptionContract and TreasuryContract shares the same authkey token, these two steps can be done in a single transaction to reduce transaction fees.
+The rebalance process is composed of two transactions. The TreasuryContract sends BCH to the RedemptionContract then the RedemptionContract re-arranges its funds by combining the received BCH to the ReserveUTXO.
+
+
+<figure>
+  <img src="./images/rebalance-tx-1.png" />
+  <figcaption>Figure 6: Transaction for sending BCH from TreasuryContract to RedemptionContract</figcaption>
+</figure>
+
+
+<figure>
+  <img src="./images/rebalance-tx-2.png" />
+  <figcaption>Figure 7: Transaction for consolidating RedemptionContract's BCH UTXOs to ReserveUTXO</figcaption>
+</figure>
+
 
 ## 5. Key Innovations
 
@@ -236,7 +254,7 @@ The 2x leveraged shorts ensures that the total BCH deposited maintains its value
 
 <figure>
   <img src="./images/value-stability-diagram.png" />
-  <figcaption>Figure 6</figcaption>
+  <figcaption>Figure 7</figcaption>
 </figure>
 
 
@@ -297,3 +315,6 @@ StableHedge provides a stability solution for BCH-based DeFi by merging tokeniza
 [3] J. Dreyzehner, "Token Primitives for Bitcoin Cash," Bitjson's Blog, Feb. 22, 2022. [Online]. Available: https://cashtokens.org/docs/spec/chip/ [Accessed: Feb. 5, 2025].
 
 [4] M. Geukens, bitcoincashautist, “AuthGuard Standard”, November 14, 2023. [Online]. Available: https://github.com/mr-zwets/AuthGuard/ [Accessed: February 13, 2025].
+
+[5] bitcoincashautist, "Smart Contract Fingerprinting: A Method for Pattern Recognition and Analysis in Bitcoin Cash", December 24, 2024. [Online].
+Available: https://bitcoincashresearch.org/t/smart-contract-fingerprinting-a-method-for-pattern-recognition-and-analysis-in-bitcoin-cash/1441/ [Accesssed: July 18, 2025]
